@@ -15,9 +15,5 @@ dependencies = [
 py-modules = ["chat"]
 packages =  ["tools"]
 
-[features]
-cli_message = true
-debug = true
-
 [project.scripts]
 chat = "chat:main"
