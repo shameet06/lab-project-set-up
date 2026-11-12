@@ -1,19 +1,113 @@
 import os
 from dotenv import load_dotenv
 from groq import Groq
+import shlex
+from tools.calculate import calculate
+from tools.cat import cat
+from tools.grep import grep
+from tools.ls import ls
+import json
 
+FUNCTIONS = {
+    "calculate": calculate,
+    "cat": cat,
+    "grep": grep,
+    "ls": ls,
+}
+
+
+def describe_tool(name, description, parameters, required):
+
+    """Example tool desc.
+
+    >>> tool = describe_tool("cat", "Read a file.", {"path": "File to read."}, ["path"])
+    >>> tool["function"]["parameters"]["required"]
+    ['path']
+    """
+    properties = {}
+    for parameter, explanation in parameters.items():
+        properties[parameter] = {
+            "type": "string",
+            "description": explanation,
+        }
+
+    return {
+        "type": "function",
+        "function": {
+            "name": name,
+            "description": description,
+            "parameters": {
+                "type": "object",
+                "properties": properties,
+                "required": required,
+            },
+        },
+    }
+
+
+TOOLS = [
+    describe_tool(
+        "calculate",
+        "Evaluate an arithmetic expression.",
+        {"expression": "An expression such as 2 + 3."},
+        ["expression"],
+    ),
+    describe_tool(
+        "ls",
+        "List the entries in a folder.",
+        {"path": "The relative folder to list. Defaults to the current folder."},
+        [],
+    ),
+    describe_tool(
+        "cat",
+        "Read the contents of a text file.",
+        {"path": "The relative path to the file."},
+        ["path"],
+    ),
+    describe_tool(
+        "grep",
+        "Find lines in text files that match a regular expression.",
+        {"regex": "The pattern to search for.", "path": "A relative path or glob."},
+        ["regex", "path"],
+    ),
+]
 
 load_dotenv()
 client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
 
 
 def llm(messages, temperature=1):
-    completion = client.chat.completions.create(
-        messages=messages,
-        model="openai/gpt-oss-20b",
-        temperature=temperature,
-    )
-    return completion.choices[0].message.content
+    client = Groq()
+
+    while True:
+        completion = client.chat.completions.create(
+            model="openai/gpt-oss-20b",
+            messages=messages,
+            tools=TOOLS,
+            temperature=temperature,
+            timeout=30,
+        )
+
+        message = completion.choices[0].message
+        if not getattr(message, "tool_calls", None):
+            return message.content
+
+        request = message.model_dump(exclude_none=True)
+        messages.append(request)
+
+        for call in request["tool_calls"]:
+            function = call["function"]
+            try:
+                arguments = json.loads(function["arguments"])
+                result = FUNCTIONS[function["name"]](**arguments)
+            except (KeyError, TypeError, ValueError) as error:
+                result = f"Tool error: {error}"
+
+            messages.append({
+                "role": "tool",
+                "tool_call_id": call["id"],
+                "content": str(result),
+            })
 
 
 class Chat:
@@ -115,12 +209,45 @@ def repl(temperature=0.8):
     try:
         while True:
             user_input = input("chat> ")
-            print(chat.send_message(
-                user_input,
-                temperature=temperature,
-            ))
+            if user_input.startswith("/"):
+                result = run_command(user_input)
+                chat.messages.append({"role": "user", "content": user_input})
+                chat.messages.append({"role": "assistant", "content": result})
+                print(result)
+            else:
+                print(chat.send_message(user_input, temperature=temperature))
     except (KeyboardInterrupt, EOFError):
         print()
+
+
+def run_command(command):
+    """Example slash command
+
+    >>> run_command("/calculate 2 + 3 * 4")
+    '14'
+    >>> run_command("/cat")
+    'Wrong number of arguments for /cat'
+    >>> run_command("/hello")
+    'Unknown command: /hello'
+    """
+    try:
+        parts = shlex.split(command)
+    except ValueError:
+        return "Invalid command syntax"
+
+    name = parts[0][1:]
+    arguments = parts[1:]
+
+    if name not in FUNCTIONS:
+        return f"Unknown command: /{name}"
+
+    if name == "calculate" and arguments:
+        arguments = [" ".join(arguments)]
+
+    try:
+        return FUNCTIONS[name](*arguments)
+    except TypeError:
+        return f"Wrong number of arguments for /{name}"
 
 
 if __name__ == "__main__":
