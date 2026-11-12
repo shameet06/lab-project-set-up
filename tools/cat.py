@@ -1,4 +1,4 @@
-
+"""Read and return the contents of a local text file."""
 from tools.helper_function import is_path_safe
 
 

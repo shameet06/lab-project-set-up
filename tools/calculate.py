@@ -1,3 +1,4 @@
+"""Evaluate arithmetic expressions and return their results as text."""
 import re
 
 

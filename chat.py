@@ -1,3 +1,4 @@
+"""Run a command-line assistant that answers questions about local files."""
 import os
 from dotenv import load_dotenv
 from groq import Groq
@@ -7,6 +8,7 @@ from tools.cat import cat
 from tools.grep import grep
 from tools.ls import ls
 import json
+import argparse
 
 FUNCTIONS = {
     "calculate": calculate,
@@ -14,7 +16,6 @@ FUNCTIONS = {
     "grep": grep,
     "ls": ls,
 }
-
 
 def describe_tool(name, description, parameters, required):
 
@@ -73,12 +74,8 @@ TOOLS = [
 ]
 
 load_dotenv()
-client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
 
-
-def llm(messages, temperature=1):
-    client = Groq()
-
+def llm(messages, temperature=1, debug=False):
     while True:
         completion = client.chat.completions.create(
             model="openai/gpt-oss-20b",
@@ -99,7 +96,11 @@ def llm(messages, temperature=1):
             function = call["function"]
             try:
                 arguments = json.loads(function["arguments"])
-                result = FUNCTIONS[function["name"]](**arguments)
+                name = function["name"]
+                tool = FUNCTIONS[name]
+                if debug:
+                    print(f"[debug] {name} {arguments}")
+                result = tool(**arguments)
             except (KeyError, TypeError, ValueError) as error:
                 result = f"Tool error: {error}"
 
@@ -116,7 +117,7 @@ class Chat:
             {"role": "system", "content": system}
         ]
 
-    def send_message(self, message, temperature=0.8):
+    def send_message(self, message, temperature=0.8, debug=False):
         """Send a message and remember the conversation.
 
         >>> from unittest.mock import MagicMock, patch
@@ -146,7 +147,7 @@ class Chat:
             "role": "user",
             "content": message,
         })
-        reply = llm(self.messages, temperature=temperature)
+        reply = llm(self.messages, temperature=temperature, debug=debug)
         self.messages.append({
             "role": "assistant",
             "content": reply,
@@ -154,7 +155,7 @@ class Chat:
         return reply
 
 
-def repl(temperature=0.8):
+def repl(temperature=0.8, debug=False):
     """Run a conversation and exit cleanly.
 
 
@@ -210,17 +211,17 @@ def repl(temperature=0.8):
         while True:
             user_input = input("chat> ")
             if user_input.startswith("/"):
-                result = run_command(user_input)
+                result = run_command(user_input, debug=debug)
                 chat.messages.append({"role": "user", "content": user_input})
                 chat.messages.append({"role": "assistant", "content": result})
                 print(result)
             else:
-                print(chat.send_message(user_input, temperature=temperature))
+                print(chat.send_message(user_input, temperature=temperature, debug=debug))
     except (KeyboardInterrupt, EOFError):
         print()
 
 
-def run_command(command):
+def run_command(command, debug=False):
     """Example slash command
 
     >>> run_command("/calculate 2 + 3 * 4")
@@ -245,10 +246,32 @@ def run_command(command):
         arguments = [" ".join(arguments)]
 
     try:
+        if debug:
+            print(f"[debug] {name} {arguments}")
         return FUNCTIONS[name](*arguments)
     except TypeError:
         return f"Wrong number of arguments for /{name}"
+    
+
+def main(argv=None):
+    """Run one message or start an interactive chat
+
+    >>> from unittest.mock import patch
+    >>> with patch("chat.repl") as mock_repl:
+    ...     main(["--debug"])
+    ...     mock_repl.assert_called_once_with(debug=True)
+    """
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--debug", action="store_true")
+    parser.add_argument("message", nargs="?")
+    args = parser.parse_args(argv)
+
+    if args.message is None:
+        repl(debug=args.debug)
+    else:
+        chat = Chat()
+        print(chat.send_message(args.message, debug=args.debug))
 
 
 if __name__ == "__main__":
-    repl()
+    main()

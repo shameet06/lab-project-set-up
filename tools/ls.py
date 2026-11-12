@@ -1,4 +1,4 @@
-
+"""List the visible files and folders in a directory in sorted order."""
 import glob
 
 from tools.helper_function import is_path_safe

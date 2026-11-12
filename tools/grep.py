@@ -1,4 +1,4 @@
-
+"""Search local text files for lines that match a regular expression."""
 import glob
 import re
 
