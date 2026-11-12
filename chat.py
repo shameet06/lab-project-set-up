@@ -76,6 +76,18 @@ TOOLS = [
 load_dotenv()
 
 def llm(messages, temperature=1, debug=False):
+    """Send the conversation to the model and run any tools it requests.
+
+    >>> from unittest.mock import Mock, patch
+    >>> reply = Mock(content="Hello!", tool_calls=None)
+    >>> with patch("chat.Groq") as fake_groq:
+    ...     create = fake_groq.return_value.chat.completions.create
+    ...     create.return_value = Mock(choices=[Mock(message=reply)])
+    ...     llm([{"role": "user", "content": "Say hello."}])
+    'Hello!'
+    """
+    client = Groq()
+
     while True:
         completion = client.chat.completions.create(
             model="openai/gpt-oss-20b",
@@ -112,6 +124,19 @@ def llm(messages, temperature=1, debug=False):
 
 
 class Chat:
+    """Store the messages in one conversation.
+
+    Each instance keeps its own history for follow-up questions.
+
+    >>> Chat("Be brief.").messages
+    [{'role': 'system', 'content': 'Be brief.'}]
+    """
+
+    def __init__(self, system="You are a helpful assistant."):
+        """Start the conversation with the given system message."""
+        self.messages = [
+            {"role": "system", "content": system}
+        ]
     def __init__(self, system="You are a helpful assistant."):
         self.messages = [
             {"role": "system", "content": system}
@@ -125,9 +150,11 @@ class Chat:
         >>> first.choices[0].message.content = "Bayern Munich fan!"
         >>> second = MagicMock()
         >>> second.choices[0].message.content = "You support Bayern Munich."
+        >>> first.choices[0].message.tool_calls = None
+        >>> second.choices[0].message.tool_calls = None
         >>> chat = Chat(system="Keep answers short.")
-        >>> with patch.object(client.chat.completions, "create",
-        ...                   side_effect=[first, second]):
+        >>> with patch("chat.Groq") as fake_groq:
+        ...     fake_groq.return_value.chat.completions.create.side_effect = [first, second]
         ...     print(chat.send_message("I support Bayern Munich.", temperature=0))
         ...     print(chat.send_message("Which team do I support?", temperature=0))
         Bayern Munich fan!
@@ -164,9 +191,11 @@ def repl(temperature=0.8, debug=False):
     >>> first.choices[0].message.content = "Have fun playing Halo!"
     >>> second = MagicMock()
     >>> second.choices[0].message.content = "You are playing Halo."
+    >>> first.choices[0].message.tool_calls = None
+    >>> second.choices[0].message.tool_calls = None
     >>> replies = [first, second]
     >>> requests = []
-    >>> def fake_create(messages, model, temperature):
+    >>> def fake_create(messages, model, temperature, **kwargs):
     ...     saved = []
     ...     for message in messages:
     ...         saved.append(message.copy())
@@ -174,8 +203,8 @@ def repl(temperature=0.8, debug=False):
     ...     return replies[len(requests) - 1]
     >>> with patch("builtins.input",
     ...            side_effect=["I am playing Halo.", "What game?", EOFError]):
-    ...     with patch.object(client.chat.completions, "create",
-    ...                       side_effect=fake_create):
+    ...     with patch("chat.Groq") as fake_groq:
+    ...         fake_groq.return_value.chat.completions.create.side_effect = fake_create
     ...         repl(temperature=0)
     Have fun playing Halo!
     You are playing Halo.
