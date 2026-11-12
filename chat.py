@@ -133,11 +133,7 @@ class Chat:
     """
 
     def __init__(self, system="You are a helpful assistant."):
-        """Start the conversation with the given system message."""
-        self.messages = [
-            {"role": "system", "content": system}
-        ]
-    def __init__(self, system="You are a helpful assistant."):
+        """Start a new conversation with the given system message."""
         self.messages = [
             {"role": "system", "content": system}
         ]
